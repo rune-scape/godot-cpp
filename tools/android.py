@@ -3,6 +3,7 @@ import sys
 import my_spawn
 import common_compiler_flags
 from SCons.Script import ARGUMENTS
+from SCons.Variables import *
 
 
 def options(opts):
@@ -16,6 +17,7 @@ def options(opts):
         "Path to your Android SDK installation. By default, uses ANDROID_HOME from your defined environment variables.",
         os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT")),
     )
+    opts.Add(EnumVariable("lto", "Link-time optimization (production builds)", "auto", ("none", "auto", "thin", "full")))
 
 
 def exists(env):
@@ -51,6 +53,20 @@ def generate(env):
     if int(env["android_api_level"]) < 21:
         print("WARNING: minimum supported Android target api is 21. Forcing target api 21.")
         env["android_api_level"] = "21"
+
+    # LTO
+    if env["lto"] == "auto":
+        if env["target"] == "template_release":
+            env["lto"] = "full" # Full LTO for production.
+        else:
+            env["lto"] = "none"
+    if env["lto"] != "none":
+        if env["lto"] == "thin":
+            env.Append(CCFLAGS=["-flto=thin"])
+            env.Append(LINKFLAGS=["-flto=thin"])
+        else:
+            env.Append(CCFLAGS=["-flto"])
+            env.Append(LINKFLAGS=["-flto"])
 
     # Setup toolchain
     toolchain = get_android_ndk_root(env) + "/toolchains/llvm/prebuilt/"

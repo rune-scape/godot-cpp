@@ -5,6 +5,8 @@ from SCons.Tool import clang, clangxx
 
 def options(opts):
     opts.Add(BoolVariable("use_llvm", "Use the LLVM compiler - only effective when targeting Linux", False))
+    opts.Add(EnumVariable("lto", "Link-time optimization (production builds)", "auto", ("none", "auto", "thin", "full")))
+
 
 
 def exists(env):
@@ -12,6 +14,33 @@ def exists(env):
 
 
 def generate(env):
+    if env["lto"] == "auto":
+        if env["target"] == "template_release":
+            env["lto"] = "full" # Full LTO for production.
+        else:
+            env["lto"] = "none"
+
+    if env["lto"] != "none":
+        print("Using LTO: " + env["lto"])
+
+    if env["lto"] != "none":
+        if env["lto"] == "thin":
+            if not env["use_llvm"]:
+                print("ThinLTO is only compatible with LLVM, use `use_llvm=yes` or `lto=full`.")
+                sys.exit(255)
+            env.Append(CCFLAGS=["-flto=thin"])
+            env.Append(LINKFLAGS=["-flto=thin"])
+        elif not env["use_llvm"] and env.GetOption("num_jobs") > 1:
+            env.Append(CCFLAGS=["-flto"])
+            env.Append(LINKFLAGS=["-flto=" + str(env.GetOption("num_jobs"))])
+        else:
+            env.Append(CCFLAGS=["-flto"])
+            env.Append(LINKFLAGS=["-flto"])
+
+        if not env["use_llvm"]:
+            env["RANLIB"] = "gcc-ranlib"
+            env["AR"] = "gcc-ar"
+
     if env["use_llvm"]:
         clang.generate(env)
         clangxx.generate(env)
@@ -19,7 +48,11 @@ def generate(env):
         # Required for extensions to truly unload.
         env.Append(CXXFLAGS=["-fno-gnu-unique"])
 
-    env.Append(CCFLAGS=["-fPIC", "-Wwrite-strings"])
+    if sys.platform == "win32" and env["use_llvm"]:
+        env.Append(CPPDEFINES=["TYPED_METHOD_BIND", "NOMINMAX"])
+    else:
+        env.Append(CCFLAGS=["-fPIC"])
+    env.Append(CCFLAGS=["-Wwrite-strings"])
     env.Append(LINKFLAGS=["-Wl,-R,'$$ORIGIN'"])
 
     if env["arch"] == "x86_64":
